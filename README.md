@@ -52,13 +52,13 @@ CUDA_VISIBLE_DEVICES=0,1 accelerate launch --config_file ddp_config.yaml --main_
 # this results in effective batch size of 8 = 1 * 2 * 4, where 2 is the number of gpus.
 ```
 
-## 🚀 Decoding Strategy: EOSER and ASS Scheduler 
+## 🚀 EOSER Decoding and ASS Scheduler 
 
 The code is inside the `eval/generate.py`.
 
 ![Decoding](media/Decoding.jpg)
 
-## 🚀 Consistency or InConsistency Trajectory Group Relative Policy Optimization
+## 🚀 Consistency or InConsistency Trajectory GRPO
 
 The code is inside the `cj-grpo` directory.
 
