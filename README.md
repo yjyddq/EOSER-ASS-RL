@@ -58,7 +58,7 @@ The code is inside the `eval/generate.py`.
 
 ![Decoding](media/Decoding.jpg)
 
-## 🚀 Consistency Trajectory Group Relative Policy Optimization (CJ-GRPO)
+## 🚀 Consistency or InConsistency Trajectory Group Relative Policy Optimization
 
 The code is inside the `cj-grpo` directory.
 
@@ -69,8 +69,6 @@ The code is inside the `cj-grpo` directory.
   
   CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash run.sh
   ```
-
-## 🚀 InConsistency Trajectory Group Relative Policy Optimization (iCJ-GRPO)
 
 The code of one-step optimization (from x<sub>0</sub> to x<sub>S</sub>) is inside the `one-step-grpo` directory.
 
@@ -92,9 +90,12 @@ The code of one-step optimization with prompt masking, i.e., d1 (from x'<sub>S</
   CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash run.sh
   ```
 
-The difference betwee MDLMs and AR LLMs during RL optimization (e.g., GRPO), and Algorithm Optimization Pipeline:
+The difference betwee MDLMs and AR LLMs during RL optimization (e.g., GRPO).
 
 ![CJ-GRPO](media/CJ-GRPO.jpg)
+
+Algorithm Optimization Pipeline:
+
 ![Algorithm](media/Algorithm.jpg)
 
 
