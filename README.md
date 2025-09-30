@@ -171,8 +171,7 @@ def ass_sampling(logits, x0, remasking, eos_id, dtype, step_idx=None, total_step
 The code is inside the `cj-grpo` directory:
 
 - `cj-grpo/cj_grpo_trainer_xxx.py` contains the algorithm code of CJ-GRPO combined with various decoding strategy
-- `cj-grpo/slurm_scripts` contains the slurm scripts we used to run the CJ-GRPO experiments
-- Example bash script for running the CJ-GRPO experiment:
+- `cj-grpo/slurm_scripts` contains the slurm scripts we used to run the CJ-GRPO experiments. Example bash script for running the experiment:
   ```bash
   cd cj-grpo
   
@@ -182,8 +181,7 @@ The code is inside the `cj-grpo` directory:
 The code of one-step optimization starting from the partially masked prompt, i.e., d1 (from x'<sub>S</sub> to x<sub>S</sub>) is inside the `diffu-grpo` directory:
 
 - `diffu-grpo/slurm_scripts` contains the algorithm code of diffu-grpo
-- `diffu-grpo/slurm_scripts` contains the slurm scripts we used to run the one-step optimization experiments that starting from the partially masked prompt 
-- Example bash script for running the one-step-GRPO with prompt masking experiment:
+- `diffu-grpo/slurm_scripts` contains the slurm scripts we used to run the one-step optimization experiments that starting from the partially masked prompt. Example bash script for running the experiment:
   ```bash
   cd diffu-grpo
   
@@ -193,8 +191,7 @@ The code of one-step optimization starting from the partially masked prompt, i.e
 The code of one-step optimization starting from the fully masked response (from x<sub>0</sub> to x<sub>S</sub>) is inside the `one-step-grpo` directory:
 
 - `one-step-grpo/one_step_grpo_trainer.py` contains the algorithm code of one-step-grpo
-- `one-step-grpo/slurm_scripts` contains the slurm scripts we used to run the experiments that one-step optimization starting from the fully masked response 
-- Example bash script for running the one-step-GRPO experiment:
+- `one-step-grpo/slurm_scripts` contains the slurm scripts we used to run the experiments that one-step optimization starting from the fully masked response. Example bash script for running the experiment:
   ```bash
   cd one-step-grpo
   
