@@ -23,7 +23,7 @@
 
 ## 📢 Updates
 
-* TBD: Our paper will coming soon.
+* 09-30-2025: We released our [paper](https://arxiv.org/pdf/2509.23924).
 * 09-28-2025: We released the code of Taming Masked Diffusion Language Models via Consistency Trajectory Reinforcement Learning with Fewer Decoding Step.
 
 <div align="center">
@@ -60,7 +60,7 @@ The code is inside the `eval/generate.py`.
 
 ## 🚀 Consistency or InConsistency Trajectory GRPO
 
-The code is inside the `cj-grpo` directory.
+The code is inside the `cj-grpo` directory:
 
 - `cj-grpo/slurm_scripts` contains the slurm scripts we used to run the CJ-GRPO experiments
 - Example bash script for running the CJ-GRPO experiment:
@@ -70,7 +70,7 @@ The code is inside the `cj-grpo` directory.
   CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash run.sh
   ```
 
-The code of one-step optimization (from x<sub>0</sub> to x<sub>S</sub>) is inside the `one-step-grpo` directory.
+The code of one-step optimization starting from the fully maksed response (from x<sub>0</sub> to x<sub>S</sub>) is inside the `one-step-grpo` directory:
 
 - `one-step-grpo/slurm_scripts` contains the slurm scripts we used to run the one-step optimization experiments
 - Example bash script for running the one-step-GRPO experiment:
@@ -80,7 +80,7 @@ The code of one-step optimization (from x<sub>0</sub> to x<sub>S</sub>) is insid
   CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash run.sh
   ```
 
-The code of one-step optimization with prompt masking, i.e., d1 (from x'<sub>S</sub> to x<sub>S</sub>) is inside the `diffu-grpo` directory.
+The code of one-step optimization starting from the partially masked prompt, i.e., d1 (from x'<sub>S</sub> to x<sub>S</sub>) is inside the `diffu-grpo` directory:
 
 - `diffu-grpo/slurm_scripts` contains the slurm scripts we used to run the one-step optimization with prompt masking experiments
 - Example bash script for running the one-step-GRPO with prompt masking experiment:
@@ -90,7 +90,7 @@ The code of one-step optimization with prompt masking, i.e., d1 (from x'<sub>S</
   CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash run.sh
   ```
 
-The difference betwee MDLMs and AR LLMs during RL optimization (e.g., GRPO).
+The difference betwee MDLMs and AR LLMs during RL optimization (e.g., GRPO):
 
 ![CJ-GRPO](media/CJ-GRPO.jpg)
 
@@ -101,7 +101,7 @@ Algorithm Optimization Pipeline:
 
 ## 🚀 Evaluation
 
-The evaluation code is inside the `eval` directory.
+The evaluation code is inside the `eval` directory:
 
 - Run with `bash run_eval.sh`
 - The evaluation file will only save the generations, use `python parse_and_get_acc.py` to print the accuracy.
@@ -109,10 +109,18 @@ The evaluation code is inside the `eval` directory.
 
 ## 🔗 Citation
 
-If you find this work useful, please consider citing:
+If this paper or code are useful for you, please consider citing our paper:
 
 ```bibtex
-TBD
+@misc{yang2025tamingmaskeddiffusionlanguage,
+      title={Taming Masked Diffusion Language Models via Consistency Trajectory Reinforcement Learning with Fewer Decoding Step}, 
+      author={Jingyi Yang and Guanxu Chen and Xuhao Hu and Jing Shao},
+      year={2025},
+      eprint={2509.23924},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2509.23924}, 
+}
 ```
 
 ## 🙏 Acknowledgements
