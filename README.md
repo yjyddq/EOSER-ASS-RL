@@ -198,11 +198,11 @@ The code of one-step optimization starting from the fully masked response (from 
   CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash run.sh
   ```
 
-The difference betwee MDLMs and AR LLMs during RL optimization (e.g., GRPO):
+**The difference betwee MDLMs and AR LLMs during RL optimization (e.g., GRPO):**
 
 ![CJ-GRPO](media/CJ-GRPO.jpg)
 
-Algorithm Optimization Pipeline:
+**Algorithm Optimization Pipeline:**
 
 ![Algorithm](media/Algorithm.jpg)
 
