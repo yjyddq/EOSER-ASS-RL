@@ -1,5 +1,5 @@
 <div  align="center">
-    <h1>Taming Masked Diffusion Language Models via Consistency Trajectory Reinforcement Learning with Fewer Decoding Step</h1>
+    <h1><a href="https://arxiv.org/pdf/2509.23924" target="_blank">Taming Masked Diffusion Language Models via Consistency Trajectory Reinforcement Learning with Fewer Decoding Step</h1>
 
   <span style="color:red">📢 <strong><i>If you also engaged in the research of MDLMs or RL, we welcome your suggestions. And feel free to create an issue, when you have any questions about the code.
   If you are interested in our work, please star ⭐ our repository, Thx 💕.</i></strong></span>
