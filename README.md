@@ -35,6 +35,9 @@
 
 To setup the environment, run:
 ```
+git clone https://github.com/yjyddq/EOSER-ASS-RL.git
+cd EOSER-ASS-RL
+
 conda env create -f env.yml
 conda activate EOSER-ASS-RL
 ```
