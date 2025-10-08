@@ -6,8 +6,8 @@ from peft import LoraConfig, PeftModel
 import argparse
 
 # Custom imports
-from one_step_grpo_trainer import FlowGRPOTrainer
-from flow_grpo_config import FlowGRPOConfig
+from one_step_grpo_trainer import OneStepGRPOTrainer
+from one_step_grpo_config import OneStepGRPOConfig
 from reward_func import (
     xmlcount_reward_func,
     soft_format_reward_func,
@@ -117,7 +117,7 @@ def main(grpo_config, model_config):
     # grpo_config.model_init_kwargs["torch_dtype"] = torch.bfloat16
 
     # Initialize and run trainer
-    trainer = FlowGRPOTrainer(
+    trainer = OneStepGRPOTrainer(
         args=grpo_config,
         model=model,
         peft_config=peft_config,
@@ -129,6 +129,6 @@ def main(grpo_config, model_config):
 
 
 if __name__ == "__main__":
-    parser = TrlParser((FlowGRPOConfig, ModelConfig))
+    parser = TrlParser((OneStepGRPOConfig, ModelConfig))
     grpo_config, model_config = parser.parse_args_and_config()
     main(grpo_config=grpo_config, model_config=model_config)

@@ -19,7 +19,7 @@ from transformers import TrainingArguments
 
 
 @dataclass
-class FlowGRPOConfig(TrainingArguments):
+class OneStepGRPOConfig(TrainingArguments):
     r"""
     Configuration class for the [`GRPOTrainer`].
 
