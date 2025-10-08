@@ -94,7 +94,7 @@ def ass_sampling(logits, x0, remasking, eos_id, dtype, step_idx=None, total_step
         max_fac = eos_max_gamma
         if step_idx is not None and total_steps is not None and total_steps > 1:
             t = (2 ** (step_idx+1) - 1) / 2 ** total_steps
-            fac = min_fac + (max_fac - min_fac) * t  # linear schedule: strong suppression early -> none late
+            fac = min_fac + (max_fac - min_fac) * t  # power-of-2 schedule: strong suppression early -> none late
         else:
             fac = max_fac
         x0_p = torch.where(x0 == eos_id, x0_p * fac, x0_p)

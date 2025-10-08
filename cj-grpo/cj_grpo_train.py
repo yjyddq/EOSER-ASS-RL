@@ -6,7 +6,7 @@ from peft import LoraConfig, PeftModel
 import argparse
 
 # Custom imports
-from flow_grpo_config import FlowGRPOConfig
+from cj_grpo_config import CJGRPOConfig
 from reward_func import (
     xmlcount_reward_func,
     soft_format_reward_func,
@@ -30,13 +30,13 @@ from data_utils import (
 
 def main(grpo_config, model_config):
     if grpo_config.decoding == "semi-ar":
-        from cj_grpo_trainer_semiar import FlowGRPOTrainer
+        from cj_grpo_trainer_semiar import CJGRPOTrainer
     elif grpo_config.decoding == "eoser":
-        from cj_grpo_trainer_eoser import FlowGRPOTrainer
+        from cj_grpo_trainer_eoser import CJGRPOTrainer
     elif grpo_config.decoding == "ass":
-        from cj_grpo_trainer_ass import FlowGRPOTrainer
+        from cj_grpo_trainer_ass import CJGRPOTrainer
     elif grpo_config.decoding == "eoser-ass":
-        from cj_grpo_trainer_eoser_ass import FlowGRPOTrainer
+        from cj_grpo_trainer_eoser_ass import CJGRPOTrainer
 
     # Set seed for reproducibility
     set_random_seed(grpo_config.seed)
@@ -124,7 +124,7 @@ def main(grpo_config, model_config):
     # grpo_config.model_init_kwargs["torch_dtype"] = torch.bfloat16
 
     # Initialize and run trainer
-    trainer = FlowGRPOTrainer(
+    trainer = CJGRPOTrainer(
         args=grpo_config,
         model=model,
         peft_config=peft_config,
@@ -136,6 +136,6 @@ def main(grpo_config, model_config):
 
 
 if __name__ == "__main__":
-    parser = TrlParser((FlowGRPOConfig, ModelConfig))
+    parser = TrlParser((CJGRPOConfig, ModelConfig))
     grpo_config, model_config = parser.parse_args_and_config()
     main(grpo_config=grpo_config, model_config=model_config)
