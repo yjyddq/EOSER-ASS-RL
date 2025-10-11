@@ -223,14 +223,11 @@ The evaluation code is inside the `eval` directory:
 If this paper or code are useful for you, please consider citing our paper:
 
 ```bibtex
-@misc{yang2025tamingmaskeddiffusionlanguage,
-      title={Taming Masked Diffusion Language Models via Consistency Trajectory Reinforcement Learning with Fewer Decoding Step}, 
-      author={Jingyi Yang and Guanxu Chen and Xuhao Hu and Jing Shao},
-      year={2025},
-      eprint={2509.23924},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2509.23924}, 
+@article{yang2025taming,
+  title={Taming Masked Diffusion Language Models via Consistency Trajectory Reinforcement Learning with Fewer Decoding Step},
+  author={Yang, Jingyi and Chen, Guanxu and Hu, Xuhao and Shao, Jing},
+  journal={arXiv preprint arXiv:2509.23924},
+  year={2025}
 }
 ```
 
