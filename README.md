@@ -8,8 +8,6 @@
 <div  align="center">
 
 [![Paper](https://img.shields.io/badge/Paper-arXiv:2509.23924-red)](https://arxiv.org/pdf/2509.23924)
-[![HuggingFace](https://img.shields.io/badge/🤗%20HuggingFace-Datasets-yellow)](https://huggingface.co/datasets/JY-Young/RiOSWorld)
-<img src="https://img.shields.io/badge/Version-1.0.0-blue.svg" alt="Version"> 
 <img src="https://img.shields.io/badge/License-Apache_2.0-green.svg" alt="License">
 <img src="https://visitor-badge.laobi.icu/badge?page_id=yjyddq.EOSER-ASS-RL" />
 <img src="https://img.shields.io/github/stars/yjyddq/EOSER-ASS-RL?style=flat-square&logo=github" alt="Stars">
