@@ -26,6 +26,7 @@
 
 ## 📢 Updates
 
+* 03-09-2026: We optimize the loss backward mechanism to save GPU mem, which allows training for longer sentence lengths.
 * 09-30-2025: We released our [paper](https://arxiv.org/pdf/2509.23924).
 * 09-28-2025: We released the code of Taming Masked Diffusion Language Models via Consistency Trajectory Reinforcement Learning with Fewer Decoding Step.
 
