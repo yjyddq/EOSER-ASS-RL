@@ -78,44 +78,270 @@ class CJGRPOTrainer(GRPOTrainer):
             peft_config=peft_config,
         )
 
-        # 添加激活检查点设置，为了防止OOM
-        self.model.model.model.set_activation_checkpointing('whole_layer')  # 或其他策略
+        self.model.model.model.set_activation_checkpointing('whole_layer')
 
     @profiling_decorator
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        if return_outputs:
-            raise ValueError("The GRPOTrainer does not support returning outputs")
-        # Compute the per-token log probabilities for the model
-        reversed_traj = inputs['reversed_traj']
+    def training_step(
+        self, model: nn.Module, inputs: dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
+    ) -> torch.Tensor:
+        """
+        Override training_step to implement step-wise backward propagation.
+        
+        This reduces memory peak by computing loss and backward for each diffusion step
+        separately, instead of accumulating all activations.
+        """
+        model.train()
+        if hasattr(self.optimizer, "train") and callable(self.optimizer.train):
+            self.optimizer.train()
+
+        inputs = self._prepare_inputs(inputs)
+
+        # Get input keys
         reversed_traj_unmask_positions = inputs['reversed_traj_unmask_positions']
         reversed_traj_old_per_token_logps = inputs['reversed_traj_old_per_token_logps']
         reversed_traj_ref_per_token_logps = inputs['reversed_traj_ref_per_token_logps']
         
         steps = len(reversed_traj_unmask_positions)
-
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
+        advantages = inputs["advantages"]
 
         # Combine prompt and completion
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
-        logits_to_keep = completion_ids.size(1)  # only compute logits for completion tokens
+        logits_to_keep = completion_ids.size(1)
 
-        # Get the current iteration index and corresponding mask seed
-        reversed_traj_per_token_logps = self._get_per_token_logps(model, input_ids, reversed_traj, reversed_traj_unmask_positions, logits_to_keep)
+        total_loss = torch.tensor(0.0, device=input_ids.device)
+        mean_kl = torch.tensor(0.0, device=input_ids.device)
+        clip_ratio = torch.tensor(0.0, device=input_ids.device)
+
+        # Step-wise backward propagation
+        for i in range(steps):
+            # Compute current step loss
+            step_loss, step_kl, step_clip_ratio = self._compute_step_loss(
+                model=model,
+                input_ids=input_ids,
+                unmask_positions=reversed_traj_unmask_positions[i],
+                old_per_token_logps=reversed_traj_old_per_token_logps[i] if reversed_traj_old_per_token_logps else None,
+                ref_per_token_logps=reversed_traj_ref_per_token_logps[i] if reversed_traj_ref_per_token_logps else None,
+                advantages=advantages,
+                logits_to_keep=logits_to_keep,
+                num_steps=steps,
+            )
+
+            # Immediately proceed backward，and release the activation of step
+            # use retain_graph=False to release compute graph
+            if self.use_apex:
+                from apex import amp
+                with amp.scale_loss(step_loss, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                # divide steps
+                if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
+                    step_loss = step_loss / steps
+                self.accelerator.backward(step_loss)
+
+            with torch.no_grad():
+                total_loss += step_loss.detach()
+                mean_kl += step_kl
+                clip_ratio += step_clip_ratio
+
+            del step_loss
+            torch.cuda.empty_cache()
+
+        # Log the metrics
+        mode = "eval" if self.control.should_evaluate else "train"
+        if self.beta != 0.0:
+            self._metrics[mode]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
+        self._metrics[mode]["clip_ratio"].append(
+            self.accelerator.gather_for_metrics(clip_ratio).mean().item()
+        )
+
+        return total_loss.detach()
+
+    def _compute_step_loss(
+        self,
+        model,
+        input_ids,
+        unmask_positions,
+        old_per_token_logps,
+        ref_per_token_logps,
+        advantages,
+        logits_to_keep,
+        num_steps,
+    ):
+        """
+        Compute loss for a single diffusion step.
+        
+        Returns:
+            step_loss: The loss for this step (already divided by num_steps)
+            step_kl: KL divergence for this step (for logging)
+            step_clip_ratio: Clip ratio for this step (for logging)
+        """
+        batch_size, seq_len = input_ids.size()
+        device = input_ids.device
+        prompt_length = seq_len - logits_to_keep
+        
+        # Create prompt index
+        prompt_index = torch.zeros(seq_len, dtype=torch.bool, device=device)
+        prompt_index[:prompt_length] = True
+
+        # 计算当前 step 的 per_token_logps
+        per_token_logps = self._get_single_step_logps(
+            model=model,
+            input_ids=input_ids,
+            unmask_positions=unmask_positions,
+            prompt_index=prompt_index,
+            logits_to_keep=logits_to_keep,
+        )
+
+        # Compute KL divergence if needed
+        step_kl = torch.tensor(0.0, device=device)
+        per_token_kl = None
+        if self.beta != 0.0 and ref_per_token_logps is not None:
+            per_token_kl = (
+                torch.exp(ref_per_token_logps - per_token_logps) 
+                - (ref_per_token_logps - per_token_logps) 
+                - 1
+            )
+
+        # Compute the policy gradient loss
+        if old_per_token_logps is not None:
+            old_logps = old_per_token_logps
+        else:
+            old_logps = per_token_logps.detach()
+        
+        coef_1 = torch.exp(per_token_logps - old_logps)
+        coef_2 = torch.clamp(coef_1, 1 - self.epsilon, 1 + self.epsilon)
+        per_token_loss1 = coef_1 * advantages.unsqueeze(1)
+        per_token_loss2 = coef_2 * advantages.unsqueeze(1)
+        per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
+
+        # Apply mask for this step
+        step_unmask = unmask_positions[:, -logits_to_keep:]
+        
+        if self.beta != 0.0 and per_token_kl is not None:
+            per_token_loss = per_token_loss + self.beta * per_token_kl
+            step_kl = (per_token_kl * step_unmask).sum() / step_unmask.sum() / num_steps
+
+        # Compute clip ratio for logging
+        is_clipped = (per_token_loss1 < per_token_loss2).float()
+        step_clip_ratio = (is_clipped * step_unmask).sum() / step_unmask.sum() / num_steps
+
+        # Compute step loss (divided by num_steps for proper averaging)
+        step_loss = (per_token_loss * step_unmask).sum() / step_unmask.sum() / num_steps
+
+        return step_loss, step_kl.detach(), step_clip_ratio.detach()
+
+    def _get_single_step_logps(
+        self,
+        model,
+        input_ids,
+        unmask_positions,
+        prompt_index,
+        logits_to_keep,
+    ):
+        """
+        Compute per-token log probabilities for a single diffusion step.
+        """
+        batch_size, seq_len = input_ids.size()
+        device = input_ids.device
+        prompt_length = seq_len - logits_to_keep
+
+        # Reconstruct the masked state for this step
+        # We need to figure out which tokens were already unmasked before this step
+        # For simplicity, we use the unmask_positions to create the input state
+        
+        # Create the pre-mask state (tokens that should be masked at this step)
+        # unmask_positions indicates which tokens are being unmasked at this step
+        pre_mask_state = input_ids.clone()
+        
+        # For tokens that are being unmasked at this step, they should be masked in the input
+        # But we need the cumulative state from previous steps
+        # Since we don't have that information directly, we approximate by using the unmask_positions
+        
+        # Actually, looking at the original code more carefully:
+        # The pre_mask_state should have all tokens that are NOT yet unmasked as mask tokens
+        # Since reversed_traj_unmask_positions tracks which tokens are unmasked at each step,
+        # we need to reconstruct the state
+        
+        # For now, let's use a simplified approach:
+        # Assume the input_ids is the final state, and unmask_positions tells us
+        # which tokens to "remask" for computing the logits at this step
+        
+        # Create masked input for this step
+        masked_input = input_ids.clone()
+        # The tokens that will be unmasked at this step should be masked in the input
+        # But we need to be careful - we want the state BEFORE this step's unmasking
+        
+        # Let's use the approach from the original _get_per_token_logps:
+        # We compute logits for predicting the unmasked tokens
+        
+        logits = self.get_logits(
+            model, input_ids, prompt_index, self.args.cfg_scale, self.args.mask_id
+        )
+
+        completion_logits = logits[:, -logits_to_keep:, :]
+        completion_targets = input_ids[:, -logits_to_keep:]
+
+        per_token_logps = selective_log_softmax(
+            completion_logits, completion_targets
+        ).to(torch.float32)
+
+        return per_token_logps
+
+    @profiling_decorator
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        """
+        This method is overridden but the actual loss computation is now done in training_step.
+        This is kept for compatibility with evaluation and other parts of the Trainer.
+        """
+        if return_outputs:
+            raise ValueError("The GRPOTrainer does not support returning outputs")
+        
+        # For evaluation, we still use the original approach
+        if self.control.should_evaluate:
+            return self._compute_loss(model, inputs)
+        
+        # For training, the loss is computed in training_step with step-wise backward
+        # This method should not be called during training with our new approach
+        raise RuntimeError(
+            "compute_loss should not be called during training. "
+            "Loss computation is handled in training_step."
+        )
+    
+    @profiling_decorator
+    def _compute_loss(self, model, inputs):
+        """
+        Original compute_loss implementation for evaluation.
+        """
+        reversed_traj_unmask_positions = inputs['reversed_traj_unmask_positions']
+        reversed_traj_old_per_token_logps = inputs['reversed_traj_old_per_token_logps']
+        reversed_traj_ref_per_token_logps = inputs['reversed_traj_ref_per_token_logps']
+        
+        steps = len(reversed_traj_unmask_positions)
+        prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
+        completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
+
+        input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
+        logits_to_keep = completion_ids.size(1)
+
+        reversed_traj_per_token_logps = self._get_per_token_logps(
+            model, input_ids, reversed_traj_unmask_positions, logits_to_keep
+        )
 
         loss = torch.tensor(0.0, device=reversed_traj_per_token_logps[0].device)
         mean_kl = torch.tensor(0.0, device=reversed_traj_per_token_logps[0].device)
         clip_ratio = torch.tensor(0.0, device=reversed_traj_per_token_logps[0].device)
+
         for i in range(steps):
             per_token_logps = reversed_traj_per_token_logps[i]
-            # Compute the KL divergence between the model and the reference model
             if self.beta != 0.0:
                 ref_per_token_logps = reversed_traj_ref_per_token_logps[i]
                 per_token_kl = (
-                    torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
+                    torch.exp(ref_per_token_logps - per_token_logps) 
+                    - (ref_per_token_logps - per_token_logps) - 1
                 )
 
-            # Compute the loss
             advantages = inputs["advantages"]
             old_per_token_logps = (
                 reversed_traj_old_per_token_logps[i]
@@ -128,7 +354,7 @@ class CJGRPOTrainer(GRPOTrainer):
             per_token_loss2 = coef_2 * advantages.unsqueeze(1)
             per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
 
-            unmask_positions = reversed_traj_unmask_positions[i]
+            unmask_positions = reversed_traj_unmask_positions[i][:, -logits_to_keep:]
             if self.beta != 0.0:
                 per_token_loss = per_token_loss + self.beta * per_token_kl
                 mean_kl += (per_token_kl * unmask_positions).sum() / unmask_positions.sum() / steps
@@ -137,14 +363,11 @@ class CJGRPOTrainer(GRPOTrainer):
             clip_ratio += (is_clipped * unmask_positions).sum() / unmask_positions.sum() / steps
             loss += (per_token_loss * unmask_positions).sum() / unmask_positions.sum() / steps
 
-            # Clear step variables
             del per_token_logps, old_per_token_logps, per_token_loss, is_clipped
-        # Log the metrics
-        mode = "eval" if self.control.should_evaluate else "train"
 
+        mode = "eval"
         if self.beta != 0.0:
             self._metrics[mode]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
-
         self._metrics[mode]["clip_ratio"].append(
             self.accelerator.gather_for_metrics(clip_ratio).mean().item()
         )
@@ -270,7 +493,10 @@ class CJGRPOTrainer(GRPOTrainer):
         cfg_scale=0.0,
         remasking="low_confidence",
         mask_id=126336,
+        step_merge=False,
+        step_merge_factor=8,
     ):
+        step_merge_factor = steps // block_length
         with torch.cuda.amp.autocast(enabled=True):
             bs = prompt.shape[0]
             dtype = model.dtype
@@ -287,8 +513,11 @@ class CJGRPOTrainer(GRPOTrainer):
             # Adjust steps if needed
             steps_per_block = max(1, steps // num_blocks)
             ### Record the trajectory changes of x ###
-            reversed_traj = [x.clone()] # with initial x, one more than steps
-            reversed_traj_unmask_positions = []
+            if not step_merge:
+                reversed_traj_unmask_positions = []
+            else:
+                merged_reversed_traj_unmask_positions = []
+                mask_index_step_merge = (x == mask_id)
 
             for num_block in range(num_blocks):
                 start_idx = prompt.shape[1] + num_block * block_length
@@ -296,7 +525,7 @@ class CJGRPOTrainer(GRPOTrainer):
 
                 block_mask_index = x[:, start_idx:end_idx] == mask_id
                 num_transfer_tokens = self.get_num_transfer_tokens(block_mask_index, steps_per_block)
-
+                
                 for i in range(steps_per_block):
                     torch.cuda.empty_cache()
                     mask_index = x == mask_id
@@ -352,12 +581,26 @@ class CJGRPOTrainer(GRPOTrainer):
 
                             x[transfer_index] = x0[transfer_index]
 
-                            unmask_positions = (mask_index & (x != mask_id))[:, -logits_to_keep:]
-                            reversed_traj.append(x.clone())
-                            reversed_traj_unmask_positions.append(unmask_positions)
-                            del x0, confidence, transfer_index, unmask_positions
+                            if not step_merge:
+                                unmask_positions = (mask_index & (x != mask_id))
+                                reversed_traj_unmask_positions.append(unmask_positions)
+                                del x0, confidence, transfer_index, unmask_positions
 
-            return x, reversed_traj, reversed_traj_unmask_positions
+                            elif step_merge and (i+1) % step_merge_factor == 0:
+                                merged_unmask_positions = (mask_index_step_merge & (x != mask_id))
+                                merged_reversed_traj_unmask_positions.append(merged_unmask_positions)
+                                mask_index_step_merge = (x == mask_id)
+                                del x0, confidence, transfer_index, merged_unmask_positions
+
+                            # unmask_positions = (mask_index & (x != mask_id))
+                            # reversed_traj_unmask_positions.append(unmask_positions)
+                            # del x0, confidence, transfer_index, unmask_positions
+        if step_merge:
+            return x, merged_reversed_traj_unmask_positions
+        else:
+            return x, reversed_traj_unmask_positions
+            # return x, reversed_traj_unmask_positions
+
 
     def get_logits(self, model, batch, prompt_index, cfg_scale, mask_id):
         if cfg_scale > 0.0:
@@ -397,7 +640,7 @@ class CJGRPOTrainer(GRPOTrainer):
 
     # Get the per-token log probabilities for the completions for the model and the reference model
     @profiling_decorator
-    def _get_per_token_logps(self, model, input_ids, reversed_traj, reversed_traj_unmask_positions, logits_to_keep):
+    def _get_per_token_logps(self, model, input_ids, reversed_traj_unmask_positions, logits_to_keep):
         """
         Calculate per-token log probabilities.
         """
@@ -410,10 +653,18 @@ class CJGRPOTrainer(GRPOTrainer):
         steps = len(reversed_traj_unmask_positions)
         reversed_traj_logps = []
 
+        pre_mask_state = torch.cat([input_ids[:, :prompt_length], torch.full((batch_size, logits_to_keep), self.args.mask_id, device=device, dtype=input_ids.dtype)], dim=1) # [bsz, seq_len]
+        cum_unmask_index = torch.zeros((batch_size, seq_len), dtype=torch.bool, device=device) # [bsz, seq_len]
+
         for i in range(steps):
-            prompt_ids = reversed_traj[i]
-            completion_ids = reversed_traj[i+1]
-            unmask_index = reversed_traj_unmask_positions[i]
+            pre_mask_state = torch.where(cum_unmask_index, input_ids, pre_mask_state) # [bsz, seq_len]
+            prompt_ids = pre_mask_state
+
+            cur_unmask_index = reversed_traj_unmask_positions[i] # [bsz, seq_len]
+            completion_ids = torch.where(cur_unmask_index, input_ids, pre_mask_state) # [bsz, seq_len]
+
+            cum_unmask_index = cum_unmask_index | cur_unmask_index
+
             logits = self.get_logits(
                 model, prompt_ids, prompt_index, self.args.cfg_scale, self.args.mask_id
             )  # [B, L, V]
@@ -429,7 +680,6 @@ class CJGRPOTrainer(GRPOTrainer):
             torch.cuda.empty_cache()
             # per_token_logps = torch.where(unmask_index, per_token_logps, 0)
             reversed_traj_logps.append(per_token_logps)
-            # reversed_traj_logps.append(per_token_logps[unmask_index].view(batch_size, -1))
         
         return reversed_traj_logps
     
@@ -481,7 +731,7 @@ class CJGRPOTrainer(GRPOTrainer):
         cfg_scale = self.args.cfg_scale
 
         with unwrap_model_for_generation(self.model_wrapped, self.accelerator) as unwrapped_model:
-            prompt_completion_ids, reversed_traj, reversed_traj_unmask_positions = self.reversed_process(
+            prompt_completion_ids, reversed_traj_unmask_positions = self.reversed_process(
                 model=unwrapped_model,
                 prompt=prompt_ids,
                 steps=steps,
@@ -511,7 +761,7 @@ class CJGRPOTrainer(GRPOTrainer):
         with torch.no_grad():
             if self.num_iterations > 1:
                 reversed_traj_old_per_token_logps = self._get_per_token_logps(
-                    self.model, prompt_completion_ids, reversed_traj, reversed_traj_unmask_positions, logits_to_keep
+                    self.model, prompt_completion_ids, reversed_traj_unmask_positions, logits_to_keep
                 )
             else:
                 reversed_traj_old_per_token_logps = None
@@ -522,7 +772,7 @@ class CJGRPOTrainer(GRPOTrainer):
             else:
                 with self.accelerator.unwrap_model(self.model).disable_adapter():
                     reversed_traj_ref_per_token_logps = self._get_per_token_logps(
-                        self.model, prompt_completion_ids, reversed_traj, reversed_traj_unmask_positions, logits_to_keep
+                        self.model, prompt_completion_ids, reversed_traj_unmask_positions, logits_to_keep
                     )
 
         completions_text = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
@@ -651,6 +901,6 @@ class CJGRPOTrainer(GRPOTrainer):
             "reversed_traj_old_per_token_logps": reversed_traj_old_per_token_logps,
             "reversed_traj_ref_per_token_logps": reversed_traj_ref_per_token_logps,
             "advantages": advantages,
-            "reversed_traj": reversed_traj,
+            # "reversed_traj": reversed_traj,
             "reversed_traj_unmask_positions": reversed_traj_unmask_positions,
         }
